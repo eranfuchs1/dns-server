@@ -30,8 +30,16 @@ while True:
 
     qname_length = query[12]
     print('qname_length:', qname_length)
+    qname = ''
     for qname_octet in range(13, 13 + qname_length, 1):
-        print(chr(query[qname_octet]))
+        c = chr(query[qname_octet])
+        qname += c
+    print('qname:', qname)
+    # qtype = (query[13 + qname_length] << 8) + query[14 + qname_length]
+    qtype = chr(query[13 + qname_length]) + chr(query[14 + qname_length])
+    print('qtype:', qtype)
+    qclass = chr(query[15 + qname_length]) + chr(query[16 + qname_length])
+    print('qclass:', qclass)
 
     for j in range(len(query) - 1, 0, -1):
         for i in range(7, 0, -1):
