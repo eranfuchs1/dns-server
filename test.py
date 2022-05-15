@@ -27,6 +27,12 @@ while True:
     print('ancount:', ancount)
     print('nscount:', nscount)
     print('arcount:', arcount)
+
+    qname_length = query[12]
+    print('qname_length:', qname_length)
+    for qname_octet in range(13, 13 + qname_length, 1):
+        print(chr(query[qname_octet]))
+
     for j in range(len(query) - 1, 0, -1):
         for i in range(7, 0, -1):
             bit = query[j] >> i & 1
