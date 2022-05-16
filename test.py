@@ -190,43 +190,66 @@ while True:
     # for i in response[17 + qname_length:rdlength_index + 1]:
     #     rr.append(i)
 
-    for i in query[12: 13 + qname_length]:
-        rr.append(i)
+    # for i in query[12: 13 + qname_length]:
+    #     rr.append(i)
+    rr.append(1)
     # <name>
-    # domain_name = 'google'
-    # rr.append(len(domain_name))
-    # for i in domain_name:
-    #     rr.append(ord(i))
+    domain_name = qname
+    rr.append(len(domain_name))
+    for i in domain_name:
+        rr.append(ord(i))
+    rr.append(3)
+    for i in qtype[1:]:
+        rr.append(ord(i))
+    for i in qclass:
+        rr.append(ord(i))
+    rr.append(0)
     # </name>
 
     # # <type>
     # rr[3 + qname_length]
     rr.append(0)
+    rr.append(1)
+    rr.append(0)
+    rr.append(1)
+    rr.append(192)
+    rr.append(12)
+    rr.append(0)
+    rr.append(1)
+    rr.append(0)
     # rr.append(ord('c'))
     # # </type>
 
     # # <class>
+    rr.append(1)
+    rr.append(0)
     rr.append(0)
     # rr.append(ord('o'))
     # rr.append(ord('m'))
     # # </class>
 
     # <ttl>
-    rr.append(0)
+    rr.append(1)
+    rr.append(44)
     rr.append(0)
     # rr[-2] = 1
     # rr[-1] = 0
     # </ttl>
 
     # <rdlength>
+    # response[17 + qname_length + len(rr)] = 4
     rr.append(4)
     # </rdlength>
 
     # <rdata>
     # google's ip address is 142.250.74.206
+    # response[17 + qname_length + len(rr)] = 142
     rr.append(142)
+    # response[17 + qname_length + len(rr)] = 250
     rr.append(250)
+    # response[17 + qname_length + len(rr)] = 74
     rr.append(74)
+    # response[17 + qname_length + len(rr)] = 206
     rr.append(206)
     # </rdata>
     # for index, i in enumerate(rr):
@@ -237,13 +260,13 @@ while True:
     print(response[17 + qname_length])
     print()
     response[2] = 0b10000000
-    response[3] = 0b00000000
+    # response[3] = 0b00000000
     # response[4] = 0
     # response[5] = 1
     response[6] = 0
     response[7] = 1
-    response[10] = 0
-    response[11] = 1
+    # response[10] = 0
+    # response[11] = 1
     for j in range(len(response) - 1, 0, -1):
         for i in range(7, 0, -1):
             bit = response[j] >> i & 1
@@ -255,22 +278,48 @@ while True:
     print('rcode_response:', rcode_response)
     # sock_queries.sendto(response[:13 + qname_length] +
     #                     rr + response[13 + qname_length:], address)
-    to_send = response[:17 + qname_length] + rr + response[17 + qname_length:]
+    print(parse_dns_answer_authority_additional(rr))
+    # to_send = response[:17 + qname_length] + rr + response[17 + qname_length:]
+    header_dict, next_index = parse_dns_header(response)
+    question_dict, next_index = parse_dns_question(response[next_index:])
+    to_send = response[:next_index] + rr
+    print(to_send)
+    next_index = 0
+    header_dict, next_index = parse_dns_header(to_send)
+    question_dict, next_index = parse_dns_question(to_send[next_index:])
+    answer_dict, next_index = parse_dns_answer_authority_additional(
+        to_send[next_index:])
+    print(header_dict)
+    print(question_dict)
+    print(answer_dict)
     sock_queries.sendto(to_send, address)
     # sock_queries.sendto(response[:17 + qname_length] +
     #                     rr + response[17 + qname_length:], address)
     # sock_queries.sendto(response[:17 + qname_length] + rr, address)
     # sock_queries.sendto(response + rr, address)
-    sock_client.sendto(bytearray(query), ('8.8.8.8', 53))
-    dns_response = sock_client.recvfrom(10000)
-    header_dict, next_index = parse_dns_header(dns_response[0])
-    question_dict, next_index = parse_dns_question(
-        dns_response[0][next_index:])
-    answer_dict, next_index = parse_dns_answer_authority_additional(
-        dns_response[0][next_index:])
-    print(header_dict)
-    print(question_dict)
-    print(answer_dict)
+
+    # # <client>
+    # sock_client.sendto(bytearray(query), ('8.8.8.8', 53))
+    # dns_response = sock_client.recvfrom(10000)
+    # for index, _i in enumerate(zip(dns_response[0], to_send)):
+    #     i, i2 = _i
+    #     print(index, i, i2)
+    # header_dict, next_index = parse_dns_header(dns_response[0])
+    # question_dict, next_index = parse_dns_question(
+    #     dns_response[0][next_index:])
+    # print(rr)
+    # print(dns_response[0][next_index:])
+    # for index, _i in enumerate(zip(dns_response[0][next_index:], rr)):
+    #     i, i2 = _i
+    #     print(index, int(i), int(i2))
+    # answer_dict, next_index = parse_dns_answer_authority_additional(
+    #     dns_response[0][next_index:])
+    # print(header_dict)
+    # print(question_dict)
+    # print(next_index)
+    # print(answer_dict)
+    # # </client>
+
     # print(bytearray(dns_response[0]))
     # print(to_send)
     # print(parse_dns_header(dns_response[0][:12]))
