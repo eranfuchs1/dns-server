@@ -37,49 +37,66 @@ def parse_dns_question(question):
     answer = dict()
     qname_length = question[0]
     answer['qname_length'] = qname_length
+    answer['qname_bytes'] = bytearray()
     qname = ''
-    for qname_octet in range(1, 1 + qname_length, 1):
-        c = chr(question[qname_octet])
-        qname += c
+    qname_index = 1
+    question_index = 1
+    while qname_length > 0:
+        for qname_octet in range(qname_index, qname_index + qname_length, 1):
+            c = chr(question[qname_octet])
+            qname += c
+            question_index += 1
+        qname_index += qname_length + 1
+        qname_length = question[qname_index - 1]
+        answer['qname_length'] += qname_length
+        question_index += 1
+    answer['qname_bytes'] = question[:question_index]
     answer['qname'] = qname
-    qtype = chr(question[1 + qname_length]) + chr(question[2 + qname_length])
+    question_index += 1
+    qtype = chr(question[question_index]) + chr(question[1 + question_index])
     answer['qtype'] = qtype
-    qclass = chr(question[3 + qname_length]) + chr(question[4 + qname_length])
+    question_index += 2
+    qclass = chr(question[question_index]) + chr(question[1 + question_index])
     answer['qclass'] = qclass
+    question_index += 2
 
-    return answer, 5 + qname_length
+    return answer, question_index
 
 
 def parse_dns_answer_authority_additional(rr):
     answer = dict()
-    name_length = rr[1]
-    # answer['name_length'] = name_length
-    name = ''
-    index = 2
-    while name_length > 0:
-        for name_octet in range(index, index + name_length, 1):
-            c = chr(rr[name_octet])
-            name += c
-        index = index + name_length + 1
-        print(index)
-        name_length = rr[index - 1]
-        print(name_length)
-    # name_length += 1
-    answer['name'] = name
+    if (rr[0] & 0b11000000) == 0b11000000:
+        print('ptr')
+        answer['name'] = ''
+        index = 1
+    else:
+        name_length = rr[0]
+        # answer['name_length'] = name_length
+        name = ''
+        index = 1
+        while name_length > 0:
+            for name_octet in range(index, index + name_length, 1):
+                c = chr(rr[name_octet])
+                name += c
+            index = index + name_length + 1
+            name_length = rr[index - 1]
+        # name_length += 1
+        answer['name'] = name
     _type = rr[index: index + 2]
-    index += 3
+    index += 2
     answer['type'] = _type
     _class = rr[index: index + 2]
-    index += 9
+    index += 2
     answer['class'] = _class
     # ttl = (rr[index] << (8 * 3)) + (rr[1 + index] <<
     #                                 (8 * 2)) + (rr[2 + index] << (8)) + rr[3 + index]
-    ttl = (rr[index] << 8) + rr[1 + index]
+    ttl = (rr[index] << 24) + (rr[1 + index] << 16) + \
+        (rr[2 + index] << 8) + rr[3 + index]
     answer['ttl'] = ttl
-    index += 3
-    rdlength = rr[index]
+    index += 4
+    rdlength = (rr[index] << 8) + rr[1 + index]
     answer['rdlength'] = rdlength
-    index += 1
+    index += 2
     rdata = []
     for i in range(index, index + rdlength, 1):
         if len(rr) <= i:
@@ -114,17 +131,28 @@ while True:
     print('arcount:', arcount)
     print(parse_dns_header(query[:12]))
 
-    qname_length = query[12]
+    query_header_dict, query_index = parse_dns_header(query)
+    query_question_dict, _query_index = parse_dns_question(query[query_index:])
+    query_index += _query_index
+    query_additional_index = query_index
+    query_additional_dict, _query_index = parse_dns_answer_authority_additional(
+        query[query_index:])
+    query_index += _query_index
+    print(query_header_dict)
+    print(query_question_dict)
+    print(query_additional_dict)
+    qname_length = query_question_dict['qname_length']
     print('qname_length:', qname_length)
-    qname = ''
-    for qname_octet in range(13, 13 + qname_length, 1):
-        c = chr(query[qname_octet])
-        qname += c
+    qname = query_question_dict['qname']
+    # for qname_octet in range(13, 13 + qname_length, 1):
+    #     c = chr(query[qname_octet])
+    #     qname += c
     print('qname:', qname)
     # qtype = (query[13 + qname_length] << 8) + query[14 + qname_length]
-    qtype = chr(query[13 + qname_length]) + chr(query[14 + qname_length])
+    qtype = query_question_dict['qtype']
     print('qtype:', qtype)
-    qclass = chr(query[15 + qname_length]) + chr(query[16 + qname_length])
+    # qclass = chr(query[15 + qname_length]) + chr(query[16 + qname_length])
+    qclass = query_question_dict['qclass']
     print('qclass:', qclass)
 
     rr = bytearray()  # `rr` := resource record
@@ -168,19 +196,19 @@ while True:
     # rr.append(206)
     # </rdata>
 
-    for j in range(len(query) - 1, 0, -1):
-        for i in range(7, 0, -1):
-            bit = query[j] >> i & 1
-            print(bit, end='')
-    print()
+    # for j in range(len(query) - 1, 0, -1):
+    #     for i in range(7, 0, -1):
+    #         bit = query[j] >> i & 1
+    #         print(bit, end='')
+    # print()
     response = bytearray(query)
-    ar_name_length = response[17 + qname_length]
-    print('ar_name_length:', ar_name_length)
-    ar_name = ''
-    for i in response[18 + qname_length: 18 + qname_length + ar_name_length]:
-        ar_name += chr(i)
-    print('ar_name:', ar_name)
-    rdlength_index = ar_name_length + 18 + qname_length + 4
+    # ar_name_length = response[17 + qname_length]
+    # print('ar_name_length:', ar_name_length)
+    # ar_name = ''
+    # for i in response[18 + qname_length: 18 + qname_length + ar_name_length]:
+    #     ar_name += chr(i)
+    # print('ar_name:', ar_name)
+    # rdlength_index = ar_name_length + 18 + qname_length + 4
     # response[rdlength_index] = 4
     # response[rdlength_index + 1] = 142
     # response[rdlength_index + 2] = 250
@@ -192,52 +220,76 @@ while True:
 
     # for i in query[12: 13 + qname_length]:
     #     rr.append(i)
-    rr.append(1)
+    # rr.append(1)
+    # rr.append(query[query_additional_index])
     # <name>
     domain_name = qname
-    rr.append(len(domain_name))
-    for i in domain_name:
-        rr.append(ord(i))
-    rr.append(3)
-    for i in qtype[1:]:
-        rr.append(ord(i))
-    for i in qclass:
-        rr.append(ord(i))
-    rr.append(0)
+    for i in query_question_dict['qname_bytes']:
+        rr.append(i)
+    # rr.append(len(query_question_dict['qname_bytes']) - 1)
+    # rr.append(1)
+    # rr.append(0b11000000)
+    # rr.append(13)
+    # rr.append(0)
+    # rr.append(0)
+    # rr.append(0)
+    # rr.append(0)
+    # rr.append(0)
+    # rr.append(len(domain_name))
+    # for i in domain_name:
+    #     rr.append(ord(i))
+    # rr.append(1 + len(qclass))
+    # for i in qtype[1:]:
+    #     rr.append(ord(i))
+    # for i in qclass:
+    #     rr.append(ord(i))
+    # rr.append(0)
+    # for i in query[query_index: query_index + 12]:
+    #     rr.append(i)
     # </name>
 
     # # <type>
     # rr[3 + qname_length]
+    # rr.append(0)
+    # rr.append(1)
+    # rr.append(0)
+    # rr.append(1)
+    # rr.append(192)
+    # rr.append(12)
+    # rr.append(0)
     rr.append(0)
     rr.append(1)
-    rr.append(0)
-    rr.append(1)
-    rr.append(192)
-    rr.append(12)
-    rr.append(0)
-    rr.append(1)
-    rr.append(0)
-    # rr.append(ord('c'))
-    # # </type>
+    # rr.append(query_additional_dict['type'][0])
+    # rr.append(query_additional_dict['type'][1])
+    # rr.append(0)
+    # # rr.append(ord('c'))
+    # # # </type>
 
-    # # <class>
+    # # # <class>
+    # rr.append(query_additional_dict['class'][0])
+    # rr.append(query_additional_dict['class'][1])
+    # rr.append(0)
+    # rr.append(0)
+    rr.append(0)
     rr.append(1)
-    rr.append(0)
-    rr.append(0)
-    # rr.append(ord('o'))
-    # rr.append(ord('m'))
-    # # </class>
+    # rr.append(1)
+    # # rr.append(ord('o'))
+    # # rr.append(ord('m'))
+    # # # </class>
 
     # <ttl>
-    rr.append(1)
-    rr.append(44)
-    rr.append(0)
+    # rr.append(0)
     # rr[-2] = 1
     # rr[-1] = 0
+    rr.append(0)
+    rr.append(0)
+    rr.append(1)
+    rr.append(44)
     # </ttl>
 
     # <rdlength>
     # response[17 + qname_length + len(rr)] = 4
+    rr.append(0)
     rr.append(4)
     # </rdlength>
 
@@ -265,6 +317,8 @@ while True:
     # response[5] = 1
     response[6] = 0
     response[7] = 1
+    # response[8] = 0
+    # response[9] = 1
     # response[10] = 0
     # response[11] = 1
     for j in range(len(response) - 1, 0, -1):
@@ -278,20 +332,25 @@ while True:
     print('rcode_response:', rcode_response)
     # sock_queries.sendto(response[:13 + qname_length] +
     #                     rr + response[13 + qname_length:], address)
-    print(parse_dns_answer_authority_additional(rr))
+    # print(parse_dns_answer_authority_additional(rr))
     # to_send = response[:17 + qname_length] + rr + response[17 + qname_length:]
     header_dict, next_index = parse_dns_header(response)
-    question_dict, next_index = parse_dns_question(response[next_index:])
-    to_send = response[:next_index] + rr
-    print(to_send)
+    question_dict, _next_index = parse_dns_question(response[next_index:])
+    next_index += _next_index
+    to_send = response[:next_index - 1] + rr + response[next_index - 1:]
+    print('next_index:', next_index)
+    # additional_dict, next_index = parse_dns_answer_authority_additional(response[next_index:])
+    # print(to_send)
     next_index = 0
     header_dict, next_index = parse_dns_header(to_send)
-    question_dict, next_index = parse_dns_question(to_send[next_index:])
-    answer_dict, next_index = parse_dns_answer_authority_additional(
-        to_send[next_index:])
-    print(header_dict)
-    print(question_dict)
-    print(answer_dict)
+    question_dict, _next_index = parse_dns_question(to_send[next_index:])
+    next_index += _next_index
+    # answer_dict, _next_index = parse_dns_answer_authority_additional(
+    #     to_send[next_index:])
+    # next_index += _next_index
+    # print(header_dict)
+    # print(question_dict)
+    # print(answer_dict)
     sock_queries.sendto(to_send, address)
     # sock_queries.sendto(response[:17 + qname_length] +
     #                     rr + response[17 + qname_length:], address)
