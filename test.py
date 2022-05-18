@@ -224,12 +224,12 @@ while True:
     # rr.append(query[query_additional_index])
     # <name>
     domain_name = qname
-    for i in query_question_dict['qname_bytes']:
-        rr.append(i)
+    # for i in query_question_dict['qname_bytes']:
+    #     rr.append(i)
     # rr.append(len(query_question_dict['qname_bytes']) - 1)
     # rr.append(1)
-    # rr.append(0b11000000)
-    # rr.append(13)
+    rr.append(0b11000000)
+    rr.append(12)
     # rr.append(0)
     # rr.append(0)
     # rr.append(0)
