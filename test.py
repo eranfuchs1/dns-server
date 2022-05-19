@@ -2,7 +2,7 @@ import socket
 
 sock_queries = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-sock_queries.bind(('127.0.0.1', 53))
+sock_queries.bind(('0.0.0.0', 53))
 
 
 def parse_dns_header(header):
