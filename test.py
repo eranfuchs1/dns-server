@@ -30,6 +30,7 @@ def read_name(data, index):
         for name_octet in range(index, index + name_length, 1):
             c = chr(data[name_octet])
             name += c
+        name += '.'
         index = index + name_length + 1
         name_length = data[index - 1]
     answer = {'name': name, 'name_bytes': data[s_index:index]}
@@ -51,11 +52,13 @@ def parse_dns_question(data, index):
     answer = dict()
     name_dict, index = read_name_or_pointer(data, index)
     answer = {**answer, **name_dict}
-    answer['qtype'] = chr(data[index]) + \
-        chr(data[1 + index])
+    # answer['qtype'] = chr(data[index]) + \
+    #     chr(data[1 + index])
+    answer['qtype'] = data[index:index + 2]
     index += 2
-    answer['qclass'] = chr(data[index]) + \
-        chr(data[1 + index])
+    # answer['qclass'] = chr(data[index]) + \
+    #     chr(data[1 + index])
+    answer['qclass'] = data[index:index + 2]
     index += 2
 
     return answer, index
@@ -140,6 +143,8 @@ def parse_domain_name(name, origin, ext_origin):
 
 
 def parse_master_file(fname, ext_origin=''):
+    _class_codes = {'IN': b'\x00\x01'}
+    _type_codes = {'A': b'\x00\x01', 'SOA': b'\x00\x06'}
     records = []
     with open(fname, 'r') as f:
         lines = parse_master_file_lines(f.readlines())
@@ -211,58 +216,138 @@ def parse_master_file(fname, ext_origin=''):
             if soa:
                 soa = False
             records.append({'domain': domain_name, 'ttl': ttl,
-                            'class': _class, 'type': _type, 'rdata': rdata})
+                            'class': _class_codes[_class], 'type': _type_codes[_type], 'rdata': rdata})
     return records
 
 
-def dns_server():
+def answer_question(data, index, records):
+    # header_dict, index = parse_dns_header(data)
+    question_dict, index = parse_dns_question(data, index)
+    print(question_dict)
+    matching_record = None
+    for record in records:
+        print(record)
+        if question_dict['qtype'] == record['type']:
+            print('qtype match')
+            if question_dict['qclass'][1] == record['class'][1]:
+                print('qclass match')
+                if question_dict['name'] == record['domain']:
+                    print('name match')
+                    matching_record = record
+                    break
+    if not matching_record:
+        return bytearray(), index
+
+    rr = bytearray()  # `rr` := resource record
+    # <name>
+    rr.append(0b11000000)
+    rr.append(12)
+    # </name>
+
+    # <type>
+    # rr += bytearray(matching_record['type'])
+    rr.append(matching_record['type'][0])
+    rr.append(matching_record['type'][1])
+    # rr.append(0)
+    # rr.append(1)
+    # </type>
+
+    # <class>
+    # rr += matching_record['class']
+    rr.append(matching_record['class'][0])
+    rr.append(matching_record['class'][1])
+    # rr.append(0)
+    # rr.append(1)
+    # </class>
+
+    # <ttl>
+    rr.append((int(matching_record['ttl']) & (
+        0b11111111 << 24)) >> 24)
+    rr.append((int(matching_record['ttl']) & (
+        0b11111111 << 16)) >> 16)
+    rr.append((int(matching_record['ttl']) & (
+        0b11111111 << 8)) >> 8)
+    rr.append((int(matching_record['ttl']) & (
+        0b11111111)))
+    # rr.append(0)
+    # rr.append(0)
+    # rr.append(1)
+    # rr.append(44)
+    # </ttl>
+
+    # <rdlength>
+
+    # rr.append((len(matching_record['rdata']) & (
+    #     0b11111111 << 8)) >> 8)
+    # rr.append((len(matching_record['rdata']) & (
+    #     0b11111111)))
+
+    # rr.append(0)
+    # rr.append(4)
+    # </rdlength>
+
+    # <rdata>
+    if matching_record['type'] == b'\x00\x01':
+        rr.append(0)
+        rr.append(4)
+        for i in str(matching_record['rdata'][0]).split('.'):
+            rr.append(int(i))
+    return rr, index
+
+
+def dns_server(records):
     while True:
         query, address = sock_queries.recvfrom(1000)
 
-        rr = bytearray()  # `rr` := resource record
+        # rr = bytearray()  # `rr` := resource record
         response = bytearray(query)
-        # <name>
-        rr.append(0b11000000)
-        rr.append(12)
-        # </name>
+        # # <name>
+        # rr.append(0b11000000)
+        # rr.append(12)
+        # # </name>
 
-        # <type>
-        rr.append(0)
-        rr.append(1)
-        # </type>
+        # # <type>
+        # rr.append(0)
+        # rr.append(1)
+        # # </type>
 
-        # <class>
-        rr.append(0)
-        rr.append(1)
-        # </class>
+        # # <class>
+        # rr.append(0)
+        # rr.append(1)
+        # # </class>
 
-        # <ttl>
-        rr.append(0)
-        rr.append(0)
-        rr.append(1)
-        rr.append(44)
-        # </ttl>
+        # # <ttl>
+        # rr.append(0)
+        # rr.append(0)
+        # rr.append(1)
+        # rr.append(44)
+        # # </ttl>
 
-        # <rdlength>
-        rr.append(0)
-        rr.append(4)
-        # </rdlength>
+        # # <rdlength>
+        # rr.append(0)
+        # rr.append(4)
+        # # </rdlength>
 
-        # <rdata>
-        # google's ip address is 142.250.74.206
-        rr.append(142)
-        rr.append(250)
-        rr.append(74)
-        rr.append(206)
-        # </rdata>
+        # # <rdata>
+        # # google's ip address is 142.250.74.206
+        # rr.append(142)
+        # rr.append(250)
+        # rr.append(74)
+        # rr.append(206)
+        # # </rdata>
         response[2] = 0b10000000
         response[7] = 1
         header_dict, index = parse_dns_header(response)
-        question_dict, index = parse_dns_question(response, index)
+        rr, index = answer_question(query, index, records)
+        if not len(rr):
+            print('error')
+            response[3] = (response[3] & 0b11110000) + 2
+        # question_dict, index = parse_dns_question(response, index)
         to_send = response[:index] + rr + response[index:]
         sock_queries.sendto(to_send, address)
 
 
 if __name__ == '__main__':
     import sys
-    print(parse_master_file(sys.argv[1]))
+    records = parse_master_file(sys.argv[1])
+    dns_server(records)
