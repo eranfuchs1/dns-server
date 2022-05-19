@@ -1,0 +1,10 @@
+$ORIGIN		my_website.com.
+
+@ IN SOA ns.my_ns.com. root.my_ns.com. (
+2001072300 ; Serial
+3600 ; Refresh
+300 ; Retry
+604800 ; Expire
+3600 ) ; Minimum
+
+IN 300 A 200.120.121.103
