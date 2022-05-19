@@ -85,48 +85,184 @@ def parse_dns_answer_authority_additional(data):
     return answer, index
 
 
-while True:
-    query, address = sock_queries.recvfrom(1000)
+def parse_master_file_line(line: str):
+    try:
+        comment_index = line.index(';')
+    except ValueError:
+        comment_index = -1
+    return (line[: comment_index] if comment_index > 0 else line).rstrip('\n').replace('\t', ' ').split(' ')
 
-    rr = bytearray()  # `rr` := resource record
-    response = bytearray(query)
-    # <name>
-    rr.append(0b11000000)
-    rr.append(12)
-    # </name>
 
-    # <type>
-    rr.append(0)
-    rr.append(1)
-    # </type>
+def remove_parentheses(word: str):
+    index = 0
+    while index < len(word):
+        if word[index] in '()':
+            if index > 0:
+                if word[index - 1] == '\\':
+                    pass
+                else:
+                    del word[index]
+                    continue
+            else:
+                del word[index]
+                continue
+        index += 1
+    return word
 
-    # <class>
-    rr.append(0)
-    rr.append(1)
-    # </class>
 
-    # <ttl>
-    rr.append(0)
-    rr.append(0)
-    rr.append(1)
-    rr.append(44)
-    # </ttl>
+def parse_master_file_lines(lines: list[str]):
+    parentheses_queue = []
+    answer = []
+    words = []
+    for line in lines:
+        _words = parse_master_file_line(line)
+        for word in _words:
+            for c in word:
+                if c == '(':
+                    parentheses_queue.append('(')
+                elif c == ')':
+                    parentheses_queue.pop()
+        words += [remove_parentheses(word)
+                  for word in filter(lambda w: not w in '()', _words)]
+        if len(parentheses_queue) == 0:
+            answer.append(words.copy())
+            words = []
+    return answer
 
-    # <rdlength>
-    rr.append(0)
-    rr.append(4)
-    # </rdlength>
 
-    # <rdata>
-    # google's ip address is 142.250.74.206
-    rr.append(142)
-    rr.append(250)
-    rr.append(74)
-    rr.append(206)
-    # </rdata>
-    response[2] = 0b10000000
-    response[7] = 1
-    header_dict, index = parse_dns_header(response)
-    question_dict, index = parse_dns_question(response, index)
-    to_send = response[:index] + rr + response[index:]
-    sock_queries.sendto(to_send, address)
+def parse_domain_name(name, origin, ext_origin):
+    if name[-1] == '.':
+        return name
+    elif name == '@':
+        return origin + ext_origin
+    else:
+        return f'{name}.{origin}{ext_origin}'
+
+
+def parse_master_file(fname, ext_origin=''):
+    records = []
+    with open(fname, 'r') as f:
+        lines = parse_master_file_lines(f.readlines())
+    origin = ''
+    relative_origin = ''
+    ttl = 0
+    _class = ''
+    domain_name = ''
+    soa = True
+    for line in lines:
+        if len(line) == 0:
+            continue
+        index = 0
+        word = line[index]
+        soa_addition = soa * 6
+        if word == '$ORIGIN':
+            index += 1
+            word = line[index]
+            origin = parse_domain_name(word, origin, ext_origin)
+            continue
+        elif word == '$INCLUDE':
+            index += 1
+            word = line[index]
+            records += parse_master_file(word, origin + ext_origin)
+            continue
+        else:
+            if len(line) == 5 + soa_addition:
+                domain_name = parse_domain_name(line[0], origin, ext_origin)
+                if str(line[1]).isnumeric():
+                    ttl = int(line[1])
+                    _class = line[2]
+                else:
+                    ttl = int(line[2])
+                    _class = line[1]
+                _type = line[3]
+                rdata = line[4:]
+            elif len(line) == 4 + soa_addition:
+                if str(line[0]).isupper():
+                    _class = line[0]
+                    ttl = int(line[1])
+                elif not str(line[0]).isdigit():
+                    domain_name = parse_domain_name(
+                        line[0], origin, ext_origin)
+                    if str(line[1]).isdigit():
+                        ttl = int(line[1])
+                    else:
+                        _class = line[1]
+                else:
+                    ttl = int(line[0])
+                    _class = line[1]
+                _type = line[2]
+                rdata = line[3:]
+            elif len(line) == 3 + soa_addition:
+                if str(line[0]).isnumeric():
+                    ttl = int(line[0])
+                elif str(line[0]).isupper():
+                    _class = line[0]
+                else:
+                    domain_name = parse_domain_name(
+                        line[0], origin, ext_origin)
+                _type = line[1]
+                rdata = line[2:]
+            elif len(line) == 2 + soa_addition:
+                _type = line[0]
+                rdata = line[1:]
+            else:
+                raise Exception(
+                    f'incompatible number of arguments in line, {len(line)}', str(line))
+            if soa:
+                soa = False
+            records.append({'domain': domain_name, 'ttl': ttl,
+                            'class': _class, 'type': _type, 'rdata': rdata})
+    return records
+
+
+def dns_server():
+    while True:
+        query, address = sock_queries.recvfrom(1000)
+
+        rr = bytearray()  # `rr` := resource record
+        response = bytearray(query)
+        # <name>
+        rr.append(0b11000000)
+        rr.append(12)
+        # </name>
+
+        # <type>
+        rr.append(0)
+        rr.append(1)
+        # </type>
+
+        # <class>
+        rr.append(0)
+        rr.append(1)
+        # </class>
+
+        # <ttl>
+        rr.append(0)
+        rr.append(0)
+        rr.append(1)
+        rr.append(44)
+        # </ttl>
+
+        # <rdlength>
+        rr.append(0)
+        rr.append(4)
+        # </rdlength>
+
+        # <rdata>
+        # google's ip address is 142.250.74.206
+        rr.append(142)
+        rr.append(250)
+        rr.append(74)
+        rr.append(206)
+        # </rdata>
+        response[2] = 0b10000000
+        response[7] = 1
+        header_dict, index = parse_dns_header(response)
+        question_dict, index = parse_dns_question(response, index)
+        to_send = response[:index] + rr + response[index:]
+        sock_queries.sendto(to_send, address)
+
+
+if __name__ == '__main__':
+    import sys
+    print(parse_master_file(sys.argv[1]))
