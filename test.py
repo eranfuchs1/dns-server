@@ -292,6 +292,27 @@ def answer_question(data, index, records):
         rr.append(4)
         for i in str(matching_record['rdata'][0]).split('.'):
             rr.append(int(i))
+    elif matching_record['type'] == b'\x00\x06':
+        rr.append(0)
+        rr.append(
+            20 + sum([sum(len(cell) + 1 for cell in rdata_cell.rstrip('.').split('.')) + 1 for rdata_cell in matching_record['rdata'][0:2]]))
+        for rdata_cell in matching_record['rdata'][0].rstrip('.').split('.'):
+            print(rdata_cell)
+            print('rdata_cell length:', len(rdata_cell))
+            rr.append(len(rdata_cell))
+            for c in rdata_cell:
+                rr.append(ord(c))
+        rr.append(0)
+        for rdata_cell in matching_record['rdata'][1].rstrip('.').split('.'):
+            rr.append(len(rdata_cell))
+            for c in rdata_cell:
+                rr.append(ord(c))
+        rr.append(0)
+        for i in matching_record['rdata'][2:]:
+            for j in [24, 16, 8, 0]:
+                rr.append((int(i) & (0b11111111 << j)) >> j)
+        # for i in range(20):
+        #     rr.append(0)
     return rr, index
 
 
@@ -299,42 +320,7 @@ def dns_server(records):
     while True:
         query, address = sock_queries.recvfrom(1000)
 
-        # rr = bytearray()  # `rr` := resource record
         response = bytearray(query)
-        # # <name>
-        # rr.append(0b11000000)
-        # rr.append(12)
-        # # </name>
-
-        # # <type>
-        # rr.append(0)
-        # rr.append(1)
-        # # </type>
-
-        # # <class>
-        # rr.append(0)
-        # rr.append(1)
-        # # </class>
-
-        # # <ttl>
-        # rr.append(0)
-        # rr.append(0)
-        # rr.append(1)
-        # rr.append(44)
-        # # </ttl>
-
-        # # <rdlength>
-        # rr.append(0)
-        # rr.append(4)
-        # # </rdlength>
-
-        # # <rdata>
-        # # google's ip address is 142.250.74.206
-        # rr.append(142)
-        # rr.append(250)
-        # rr.append(74)
-        # rr.append(206)
-        # # </rdata>
         response[2] = 0b10000000
         response[7] = 1
         header_dict, index = parse_dns_header(response)
@@ -342,7 +328,6 @@ def dns_server(records):
         if not len(rr):
             print('error')
             response[3] = (response[3] & 0b11110000) + 2
-        # question_dict, index = parse_dns_question(response, index)
         to_send = response[:index] + rr + response[index:]
         sock_queries.sendto(to_send, address)
 
