@@ -144,7 +144,8 @@ def parse_domain_name(name, origin, ext_origin):
 
 def parse_master_file(fname, ext_origin=''):
     _class_codes = {'IN': b'\x00\x01'}
-    _type_codes = {'A': b'\x00\x01', 'SOA': b'\x00\x06'}
+    _type_codes = {'A': b'\x00\x01',
+                   'SOA': b'\x00\x06', 'CNAME': num_to_uint16(5)}
     records = []
     with open(fname, 'r') as f:
         lines = parse_master_file_lines(f.readlines())
@@ -215,9 +216,35 @@ def parse_master_file(fname, ext_origin=''):
                     f'incompatible number of arguments in line, {len(line)}', str(line))
             if soa:
                 soa = False
+            for i, data in enumerate(rdata):
+                if data == '@':
+                    rdata[i] = parse_domain_name(data, origin, ext_origin)
             records.append({'domain': domain_name, 'ttl': ttl,
                             'class': _class_codes[_class], 'type': _type_codes[_type], 'rdata': rdata})
     return records
+
+
+def num_to_bits(num, bits):
+    return bytes(bytearray([((num >> bit) & 0b11111111) << bit for bit in range(bits-8, -8, -8)]))
+
+
+def num_to_uint16(num):
+    # return bytes(bytearray([((num >> 8) & 0b11111111) << 8, num & 0b11111111]))
+    return num_to_bits(num, 16)
+
+
+def num_to_uint32(num):
+    return num_to_bits(num, 32)
+
+
+def domain_name_to_bytes(domain_name):
+    domain_name_bytes = bytearray()
+    for cell in domain_name.rstrip('.').split('.'):
+        domain_name_bytes.append(len(cell))
+        for c in cell:
+            domain_name_bytes.append(ord(c))
+    domain_name_bytes.append(0)
+    return bytes(domain_name_bytes)
 
 
 def answer_question(data, index, records):
@@ -313,6 +340,12 @@ def answer_question(data, index, records):
                 rr.append((int(i) & (0b11111111 << j)) >> j)
         # for i in range(20):
         #     rr.append(0)
+    elif matching_record['type'] == num_to_uint16(5):
+        cname_bytes = domain_name_to_bytes(matching_record['rdata'][0])
+        for b in num_to_uint16(len(cname_bytes)):
+            rr.append(b)
+        for b in cname_bytes:
+            rr.append(b)
     return rr, index
 
 

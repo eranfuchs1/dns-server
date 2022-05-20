@@ -8,3 +8,4 @@ $ORIGIN		my_website.com.
 3600 ) ; Minimum
 
 IN 300 A 200.120.121.103
+www IN 300 CNAME @
