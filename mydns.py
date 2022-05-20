@@ -247,7 +247,15 @@ def domain_name_to_bytes(domain_name):
     return bytes(domain_name_bytes)
 
 
-def answer_question(data, index, records):
+def parse_cname(records):
+    aliases = {}
+    for record in records:
+        if record['type'] == num_to_uint16(5):
+            aliases[record['domain']] = record['rdata'][0]
+    return aliases
+
+
+def answer_question(data, index, records, aliases):
     # header_dict, index = parse_dns_header(data)
     question_dict, index = parse_dns_question(data, index)
     print(question_dict)
@@ -258,6 +266,11 @@ def answer_question(data, index, records):
             print('qtype match')
             if question_dict['qclass'][1] == record['class'][1]:
                 print('qclass match')
+                if question_dict['name'] in aliases:
+                    if not question_dict['qtype'] == num_to_uint16(5):
+                        if aliases[question_dict['name']] == record['domain']:
+                            matching_record = record
+                            break
                 if question_dict['name'] == record['domain']:
                     print('name match')
                     matching_record = record
@@ -346,10 +359,13 @@ def answer_question(data, index, records):
             rr.append(b)
         for b in cname_bytes:
             rr.append(b)
+    elif matching_record['type'] == num_to_uint16(15):
+        pass
     return rr, index
 
 
 def dns_server(records):
+    aliases = parse_cname(records)
     while True:
         query, address = sock_queries.recvfrom(1000)
 
@@ -357,7 +373,7 @@ def dns_server(records):
         response[2] = 0b10000000
         response[7] = 1
         header_dict, index = parse_dns_header(response)
-        rr, index = answer_question(query, index, records)
+        rr, index = answer_question(query, index, records, aliases)
         if not len(rr):
             print('error')
             response[3] = (response[3] & 0b11110000) + 2

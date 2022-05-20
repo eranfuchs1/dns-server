@@ -1,8 +1,8 @@
 FROM python:latest
 
-COPY test.py test.py
+COPY mydns.py mydns.py
 COPY zone_file_example zone_file
 
 EXPOSE 53/udp
 
-CMD ["python", "test.py", "zone_file"]
+CMD ["python", "mydns.py", "zone_file"]
