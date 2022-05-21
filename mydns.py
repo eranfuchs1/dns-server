@@ -504,7 +504,7 @@ def write_record(fname, record):
 
 def dns_server(records):
     sock_queries = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_queries.bind(('0.0.0.0', 5300))
+    sock_queries.bind(('0.0.0.0', 53))
     client_sock_queries = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     aliases = parse_cname(records)
