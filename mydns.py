@@ -142,10 +142,17 @@ def parse_domain_name(name, origin, ext_origin):
         return f'{name}.{origin}{ext_origin}'
 
 
+def get_word(words: list, _codes: dict):
+    for i in _codes:
+        if i in words:
+            return words.index(i)
+    return -1
+
+
 def parse_master_file(fname, ext_origin=''):
     _class_codes = {'IN': b'\x00\x01'}
     _type_codes = {'A': b'\x00\x01',
-                   'SOA': b'\x00\x06', 'CNAME': num_to_uint16(5)}
+                   'SOA': b'\x00\x06', 'CNAME': num_to_uint16(5), 'MX': num_to_uint16(15)}
     records = []
     with open(fname, 'r') as f:
         lines = parse_master_file_lines(f.readlines())
@@ -172,48 +179,76 @@ def parse_master_file(fname, ext_origin=''):
             records += parse_master_file(word, origin + ext_origin)
             continue
         else:
-            if len(line) == 5 + soa_addition:
-                domain_name = parse_domain_name(line[0], origin, ext_origin)
-                if str(line[1]).isnumeric():
-                    ttl = int(line[1])
-                    _class = line[2]
+            _class_index = get_word(line, _class_codes)
+            _type_index = get_word(line, _type_codes)
+            _type = line[_type_index]
+            rdata = line[_type_index + 1:]
+            if _class_index >= 0:
+                _class = line[_class_index]
+                if _type_index - 1 == _class_index:
+                    if _class_index > 0:
+                        if line[_class_index - 1].isdigit():
+                            ttl = int(line[_class_index - 1])
+                        else:
+                            domain_name = parse_domain_name(
+                                line[0], origin, ext_origin)
                 else:
-                    ttl = int(line[2])
-                    _class = line[1]
-                _type = line[3]
-                rdata = line[4:]
-            elif len(line) == 4 + soa_addition:
-                if str(line[0]).isupper():
-                    _class = line[0]
-                    ttl = int(line[1])
-                elif not str(line[0]).isdigit():
-                    domain_name = parse_domain_name(
-                        line[0], origin, ext_origin)
-                    if str(line[1]).isdigit():
-                        ttl = int(line[1])
-                    else:
-                        _class = line[1]
-                else:
-                    ttl = int(line[0])
-                    _class = line[1]
-                _type = line[2]
-                rdata = line[3:]
-            elif len(line) == 3 + soa_addition:
-                if str(line[0]).isnumeric():
-                    ttl = int(line[0])
-                elif str(line[0]).isupper():
-                    _class = line[0]
-                else:
-                    domain_name = parse_domain_name(
-                        line[0], origin, ext_origin)
-                _type = line[1]
-                rdata = line[2:]
-            elif len(line) == 2 + soa_addition:
-                _type = line[0]
-                rdata = line[1:]
+                    ttl = int(line[_class_index + 1])
+                    if _class_index > 0:
+                        domain_name = parse_domain_name(
+                            line[0], origin, ext_origin)
             else:
-                raise Exception(
-                    f'incompatible number of arguments in line, {len(line)}', str(line))
+                if _type_index == 2:
+                    ttl = int(line[1])
+                    domain_name = parse_domain_name(
+                        line[0], origin, ext_origin)
+                elif line[0].isdigit():
+                    ttl = int(line[0])
+                else:
+                    domain_name = parse_domain_name(
+                        line[0], origin, ext_origin)
+            # if len(line) == 5 + soa_addition:
+            #     domain_name = parse_domain_name(line[0], origin, ext_origin)
+            #     if str(line[1]).isnumeric():
+            #         ttl = int(line[1])
+            #         _class = line[2]
+            #     else:
+            #         ttl = int(line[2])
+            #         _class = line[1]
+            #     _type = line[3]
+            #     rdata = line[4:]
+            # elif len(line) == 4 + soa_addition:
+            #     if str(line[0]).isupper():
+            #         _class = line[0]
+            #         ttl = int(line[1])
+            #     elif not str(line[0]).isdigit():
+            #         domain_name = parse_domain_name(
+            #             line[0], origin, ext_origin)
+            #         if str(line[1]).isdigit():
+            #             ttl = int(line[1])
+            #         else:
+            #             _class = line[1]
+            #     else:
+            #         ttl = int(line[0])
+            #         _class = line[1]
+            #     _type = line[2]
+            #     rdata = line[3:]
+            # elif len(line) == 3 + soa_addition:
+            #     if str(line[0]).isnumeric():
+            #         ttl = int(line[0])
+            #     elif str(line[0]).isupper():
+            #         _class = line[0]
+            #     else:
+            #         domain_name = parse_domain_name(
+            #             line[0], origin, ext_origin)
+            #     _type = line[1]
+            #     rdata = line[2:]
+            # elif len(line) == 2 + soa_addition:
+            #     _type = line[0]
+            #     rdata = line[1:]
+            # else:
+            #     raise Exception(
+            #         f'incompatible number of arguments in line, {len(line)}', str(line))
             if soa:
                 soa = False
             for i, data in enumerate(rdata):
@@ -360,7 +395,14 @@ def answer_question(data, index, records, aliases):
         for b in cname_bytes:
             rr.append(b)
     elif matching_record['type'] == num_to_uint16(15):
-        pass
+        preference = num_to_uint16(int(matching_record['rdata'][0]))
+        mx_domain_bytes = domain_name_to_bytes(matching_record['rdata'][1])
+        for b in num_to_uint16(len(preference) + len(mx_domain_bytes)):
+            rr.append(b)
+        for b in preference:
+            rr.append(b)
+        for b in mx_domain_bytes:
+            rr.append(b)
     return rr, index
 
 

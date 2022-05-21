@@ -7,5 +7,6 @@ $ORIGIN		my_website.com.
 604800 ; Expire
 3600 ) ; Minimum
 
-IN 300 A 200.120.121.103
+IN 300 A 127.0.0.1
 www IN 300 CNAME @
+eran IN 300 MX 10 @
