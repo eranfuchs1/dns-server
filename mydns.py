@@ -1,22 +1,26 @@
 import socket
-
-sock_queries = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-sock_queries.bind(('0.0.0.0', 53))
+import copy
 
 
-def parse_dns_header(header):
+def bits_to_num(bits):
+    num = 0
+    for i, ri in zip(range(len(bits)), range((len(bits) - 1) * 8, -8, -8)):
+        num += bits[i] << ri
+    return num
+
+
+def parse_dns_header(message):
     answer = dict()
-    answer['id'] = (header[0] << 8) + header[1]
-    answer['qr'] = (header[2] >> 7) & 1
-    answer['opcode'] = header[2] & 0b01111000
-    answer['aa'] = header[2] & 0b00000100
-    answer['tc'] = header[2] & 0b00000010
-    answer['rcode'] = header[3] & 0b00001111
-    answer['qdcount'] = (header[4] << 8) + header[5]
-    answer['ancount'] = (header[6] << 8) + header[7]
-    answer['nscount'] = (header[8] << 8) + header[9]
-    answer['arcount'] = (header[10] << 8) + header[11]
+    answer['id'] = bits_to_num(message[0:2])
+    answer['qr'] = (message[2] >> 7) & 1
+    answer['opcode'] = message[2] & 0b01111000
+    answer['aa'] = message[2] & 0b00000100
+    answer['tc'] = message[2] & 0b00000010
+    answer['rcode'] = message[3] & 0b00001111
+    answer['qdcount'] = bits_to_num(message[4:6])
+    answer['ancount'] = bits_to_num(message[6:8])
+    answer['nscount'] = bits_to_num(message[8:10])
+    answer['arcount'] = bits_to_num(message[10:12])
 
     return answer, 12
 
@@ -34,55 +38,58 @@ def read_name(data, index):
         index = index + name_length + 1
         name_length = data[index - 1]
     answer = {'name': name, 'name_bytes': data[s_index:index]}
-    return answer, index
+    return [answer, index]
 
 
 def read_name_or_pointer(data, index):
     if (data[index] & 0b11000000) == 0b11000000:
         pointer_bytes = data[index:index + 2]
-        index = ((data[index] & 0b00111111) << 8) + data[index + 1]
-        read_name_output = read_name(data, index)
+        _index = bits_to_num(
+            bytes([pointer_bytes[0] & 0b0011_1111, pointer_bytes[1]]))
+        # index = ((data[index] & 0b00111111) << 8) + data[index + 1]
+        read_name_output = read_name(data, _index)
         read_name_output[0] = {**read_name_output[0],
                                'pointer_bytes': pointer_bytes}
-        return read_name_output[0], index
+        return read_name_output[0], index + 2
     return read_name(data, index)
 
 
-def parse_dns_question(data, index):
+def parse_dns_question(message, index):
     answer = dict()
-    name_dict, index = read_name_or_pointer(data, index)
+    name_dict, index = read_name_or_pointer(message, index)
     answer = {**answer, **name_dict}
     # answer['qtype'] = chr(data[index]) + \
     #     chr(data[1 + index])
-    answer['qtype'] = data[index:index + 2]
+    answer['qtype'] = message[index:index + 2]
     index += 2
     # answer['qclass'] = chr(data[index]) + \
     #     chr(data[1 + index])
-    answer['qclass'] = data[index:index + 2]
+    answer['qclass'] = message[index:index + 2]
     index += 2
 
     return answer, index
 
 
-def parse_dns_answer_authority_additional(data):
+def parse_dns_answer_authority_additional(message, index):
     answer = dict()
-    name_dict, index = read_name_or_pointer(data, index)
+    name_dict, index = read_name_or_pointer(message, index)
     answer = {**answer, **name_dict}
-    answer['type'] = data[index: index + 2]
+    answer['type'] = message[index: index + 2]
     index += 2
-    answer['class'] = data[index: index + 2]
+    answer['class'] = message[index: index + 2]
     index += 2
-    answer['ttl'] = (data[index] << 24) + (data[1 + index] << 16) + \
-        (data[2 + index] << 8) + data[3 + index]
+    # answer['ttl'] = (message[index] << 24) + (message[1 + index] << 16) + \
+    #     (message[2 + index] << 8) + message[3 + index]
+    answer['ttl'] = bits_to_num(message[index:index+4])
     index += 4
-    rdlength = (data[index] << 8) + data[1 + index]
+    rdlength = bits_to_num(message[index: index + 2])
     answer['rdlength'] = rdlength
     index += 2
     rdata = []
     for i in range(index, index + rdlength, 1):
-        if len(data) <= i:
+        if len(message) <= i:
             break
-        rdata.append(int(data[i]))
+        rdata.append(int(message[i]))
     answer['rdata'] = rdata
     index += rdlength
     return answer, index
@@ -306,7 +313,7 @@ def answer_question(data, index, records, aliases):
             if question_dict['qclass'][1] == record['class'][1]:
                 print('qclass match')
                 if question_dict['name'] in aliases:
-                    if not question_dict['qtype'] == num_to_uint16(5):
+                    if not question_dict['qtype'] == num_to_uint16(6):
                         if aliases[question_dict['name']] == record['domain']:
                             matching_record = record
                             break
@@ -410,7 +417,96 @@ def answer_question(data, index, records, aliases):
     return rr, index
 
 
+def get_remote_record(message):
+    _types = {1: 'A', 15: 'MX', 5: 'CNAME', 6: 'SOA'}
+    header_dict, index = parse_dns_header(message)
+    question_dict, index = parse_dns_question(message, index)
+    answer_index = index
+    answer_dict, index = parse_dns_answer_authority_additional(message, index)
+    answer = {'domain': question_dict['name'], 'class': answer_dict['class'],
+              'ttl': answer_dict['ttl'], 'type': answer_dict['type'], 'rdata': bytes(num_to_uint16(answer_dict['rdlength']) + bytes(answer_dict['rdata']))}
+    _type = _types[bits_to_num(answer_dict['type'])]
+    if _type == 'A':
+        rdata_bytes = answer['rdata']
+        answer['rdata'] = ['.'.join([str(int(b)) for b in rdata_bytes[2:6]])]
+    elif _type == 'CNAME':
+        rdata_bytes = answer['rdata']
+        # _domain = read_name_or_pointer(message, answer_index  )
+        _domain = ''
+        index = 3
+        _label_length = int(rdata_bytes[index - 1])
+        while _label_length > 0:
+            for b in rdata_bytes[index: index + _label_length]:
+                _domain += ascii(b)
+            _domain += '.'
+            index += _label_length
+            _label_length = int(rdata_bytes[index - 1])
+
+        answer['rdata'] = [_domain]
+    elif _type == 'SOA':
+        rdata_bytes = copy.deepcopy(answer['rdata'])
+        print(answer)
+        answer['rdata'] = []
+        _domain = ''
+        index = 3
+        lli_eq_index = False
+        _label_length = int(rdata_bytes[index - 1])
+        for i in range(2):
+            while _label_length > 0:
+                if (_label_length & 0b1100_0000) == 0b1100_0000:
+                    _ptr = bits_to_num(
+                        bytes([_label_length & 0b0011_1111, rdata_bytes[index]]))
+                    print(_ptr)
+                    _domain += read_name_or_pointer(message, _ptr)[0]['name']
+                    index += 1
+                    _label_length = int(rdata_bytes[index])
+                    lli_eq_index = True
+                    break
+                if lli_eq_index:
+                    index += 1
+                for b in rdata_bytes[index: index + _label_length]:
+                    _domain += chr(b)
+                _domain += '.'
+                index += _label_length + 1
+                print(index, _label_length)
+                _label_length = int(rdata_bytes[index - 1])
+                lli_eq_index = False
+            answer['rdata'].append(_domain)
+            _domain = ''
+
+        # index += 2
+        # _label_length = int(rdata_bytes[index - 1])
+        # while _label_length > 0:
+        #     for b in rdata_bytes[index: index + _label_length]:
+        #         _domain += ascii(b)
+        #     _domain += '.'
+        #     index += _label_length + 1
+        #     _label_length = int(rdata_bytes[index - 1])
+        # answer['rdata'].append(_domain)
+
+        index += 1
+        for i in range(5):
+            answer['rdata'].append(
+                bits_to_num(rdata_bytes[index + (i*4): index + (i * 4) + 4]))
+
+    return answer
+
+
+def write_record(fname, record):
+    _types = {1: 'A', 15: 'MX', 5: 'CNAME', 6: 'SOA'}
+    _classes = {1: 'IN'}
+    print(record)
+    with open(fname, 'a') as f:
+        f.write(f'''
+{record['domain']} {_classes[bits_to_num(record['class'])]} {record['ttl']} {_types[bits_to_num(record['type'])]} {' '.join([str(i) for i in record['rdata']])}
+''')
+
+
 def dns_server(records):
+    sock_queries = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock_queries.bind(('0.0.0.0', 5300))
+    client_sock_queries = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
     aliases = parse_cname(records)
     while True:
         query, address = sock_queries.recvfrom(1000)
@@ -421,13 +517,20 @@ def dns_server(records):
         header_dict, index = parse_dns_header(response)
         rr, index = answer_question(query, index, records, aliases)
         if not len(rr):
-            print('error')
-            response[3] = (response[3] & 0b11110000) + 2
+            print('not found, using remote.')
+            client_sock_queries.sendto(query, ('1.1.1.1', 53))
+            remote_dns_response, remote_address = client_sock_queries.recvfrom(
+                1000)
+            sock_queries.sendto(remote_dns_response, address)
+            records.append(get_remote_record(remote_dns_response))
+            write_record('cached_zone_file', records[-1])
+            continue
         to_send = response[:index] + rr + response[index:]
         sock_queries.sendto(to_send, address)
 
 
 if __name__ == '__main__':
     import sys
-    records = parse_master_file(sys.argv[1])
+    records = parse_master_file(
+        sys.argv[1]) + parse_master_file('cached_zone_file')
     dns_server(records)
