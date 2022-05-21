@@ -203,7 +203,11 @@ def parse_master_file(fname, ext_origin=''):
                     domain_name = parse_domain_name(
                         line[0], origin, ext_origin)
                 elif line[0].isdigit():
-                    ttl = int(line[0])
+                    if ttl == int(line[0]):
+                        domain_name = parse_domain_name(
+                            line[0], origin, ext_origin)
+                    else:
+                        ttl = int(line[0])
                 else:
                     domain_name = parse_domain_name(
                         line[0], origin, ext_origin)
