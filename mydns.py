@@ -522,8 +522,11 @@ def dns_server(records):
             remote_dns_response, remote_address = client_sock_queries.recvfrom(
                 1000)
             sock_queries.sendto(remote_dns_response, address)
-            records.append(get_remote_record(remote_dns_response))
-            write_record('cached_zone_file', records[-1])
+            try:
+                records.append(get_remote_record(remote_dns_response))
+                write_record('cached_zone_file', records[-1])
+            except Exception as e:
+                print(e)
             continue
         to_send = response[:index] + rr + response[index:]
         sock_queries.sendto(to_send, address)
