@@ -509,7 +509,7 @@ def dns_server(records):
 
     aliases = parse_cname(records)
     while True:
-        query, address = sock_queries.recvfrom(1000)
+        query, address = sock_queries.recvfrom(512)# max size of dns query is 512 octets
 
         response = bytearray(query)
         response[2] = 0b10000000
