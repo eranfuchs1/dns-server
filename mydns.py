@@ -520,7 +520,7 @@ def dns_server(records):
             print('not found, using remote.')
             client_sock_queries.sendto(query, ('1.1.1.1', 53))
             remote_dns_response, remote_address = client_sock_queries.recvfrom(
-                1000)
+                512)# max size of dns response is 512 octets
             sock_queries.sendto(remote_dns_response, address)
             try:
                 records.append(get_remote_record(remote_dns_response))
